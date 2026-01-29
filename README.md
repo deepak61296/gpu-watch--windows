@@ -14,7 +14,7 @@ I used nvidia-smi but it flickers a lot and is not cool, so I just made somethin
 - Multi-GPU support
 
 ## Installation
-
+Just download Exe from above and use it as it is but if you are a dev you can:
 1. Clone the repo:
 ```bash
 git clone https://github.com/yourusername/gpu-watch.git
