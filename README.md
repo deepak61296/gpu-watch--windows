@@ -4,8 +4,6 @@ Hey everyone! I'm a robotics engineer and I do some AI/ML work, so I love to ana
 
 I used nvidia-smi but it flickers a lot and is not cool, so I just made something cooler XD
 
-![GPU Watch Demo](https://via.placeholder.com/800x400.png?text=GPU+Watch+Demo)
-
 ## Features
 
 - Real-time GPU monitoring (usage, memory, temperature, power, clocks)
