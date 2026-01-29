@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-GPU Watch for Windows - Uses Windows-native GPU monitoring
-Works without NVML!
-"""
+"""GPU Watch - Real-time NVIDIA GPU Monitor for Windows"""
 
 from rich.console import Console
 from rich.live import Live
@@ -11,7 +8,6 @@ from rich.table import Table
 from rich.layout import Layout
 from rich.text import Text
 import subprocess
-import re
 import time
 from collections import deque
 from datetime import datetime
@@ -19,7 +15,7 @@ from datetime import datetime
 console = Console()
 
 class WindowsGPUMonitor:
-    """GPU monitoring using nvidia-smi and Windows commands"""
+    """GPU monitoring using nvidia-smi"""
 
     def __init__(self):
         self.sparkline_chars = " ▁▂▃▄▅▆▇█"
@@ -28,12 +24,10 @@ class WindowsGPUMonitor:
         self.mem_history = {}
         self.temp_history = {}
         self.gpu_count = 0
-
-        # Detect GPUs
         self.detect_gpus()
 
     def detect_gpus(self):
-        """Detect NVIDIA GPUs using nvidia-smi"""
+        """Detect NVIDIA GPUs"""
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=count', '--format=csv,noheader'],
@@ -45,7 +39,6 @@ class WindowsGPUMonitor:
                 self.gpu_count = int(result.stdout.strip())
                 console.print(f"[green]Detected {self.gpu_count} NVIDIA GPU(s)[/green]")
 
-                # Initialize history
                 for i in range(self.gpu_count):
                     self.gpu_history[i] = deque([0] * self.history_size, maxlen=self.history_size)
                     self.mem_history[i] = deque([0] * self.history_size, maxlen=self.history_size)
@@ -98,10 +91,9 @@ class WindowsGPUMonitor:
         return Text(bar, style=color)
 
     def get_gpu_info(self):
-        """Get GPU information using nvidia-smi"""
+        """Get GPU information"""
         try:
-            # Query all GPU stats at once
-            query = 'index,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,clocks.gr,clocks.mem,fan.speed'
+            query = 'index,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,power.max_limit,clocks.gr,clocks.mem,fan.speed'
 
             result = subprocess.run(
                 ['nvidia-smi', f'--query-gpu={query}', '--format=csv,noheader,nounits'],
@@ -117,8 +109,12 @@ class WindowsGPUMonitor:
             for line in result.stdout.strip().split('\n'):
                 parts = [p.strip() for p in line.split(',')]
 
-                if len(parts) >= 12:
+                if len(parts) >= 13:
                     try:
+                        power_limit = float(parts[8]) if parts[8] != '[N/A]' else 0
+                        if power_limit == 0:
+                            power_limit = float(parts[9]) if parts[9] != '[N/A]' else 0
+
                         gpu_info = {
                             'index': int(parts[0]),
                             'name': parts[1],
@@ -128,19 +124,17 @@ class WindowsGPUMonitor:
                             'mem_total': float(parts[5]) if parts[5] != '[N/A]' else 0,
                             'temp': float(parts[6]) if parts[6] != '[N/A]' else 0,
                             'power': float(parts[7]) if parts[7] != '[N/A]' else 0,
-                            'power_limit': float(parts[8]) if parts[8] != '[N/A]' else 0,
-                            'gpu_clock': int(parts[9]) if parts[9] != '[N/A]' else 0,
-                            'mem_clock': int(parts[10]) if parts[10] != '[N/A]' else 0,
-                            'fan_speed': float(parts[11]) if parts[11] != '[N/A]' and parts[11] != '[Unknown Error]' else 0,
+                            'power_limit': power_limit,
+                            'gpu_clock': int(parts[10]) if parts[10] != '[N/A]' else 0,
+                            'mem_clock': int(parts[11]) if parts[11] != '[N/A]' else 0,
+                            'fan_speed': float(parts[12]) if parts[12] != '[N/A]' and parts[12] != '[Unknown Error]' else 0,
                         }
 
-                        # Calculate mem percent
                         if gpu_info['mem_total'] > 0:
                             gpu_info['mem_percent'] = (gpu_info['mem_used'] / gpu_info['mem_total']) * 100
                         else:
                             gpu_info['mem_percent'] = 0
 
-                        # Update history
                         idx = gpu_info['index']
                         self.gpu_history[idx].append(gpu_info['gpu_util'])
                         self.mem_history[idx].append(gpu_info['mem_percent'])
@@ -176,7 +170,7 @@ class WindowsGPUMonitor:
                         processes.append({
                             'gpu': parts[0],
                             'pid': parts[1],
-                            'name': parts[2].split('\\')[-1],  # Get filename only
+                            'name': parts[2].split('\\')[-1],
                             'memory': parts[3]
                         })
 
@@ -190,19 +184,16 @@ class WindowsGPUMonitor:
         if info is None:
             return Panel("[red]Error reading GPU[/red]", border_style="red")
 
-        # Create content table
         table = Table.grid(padding=(0, 1))
         table.add_column(style="bold cyan", justify="left", width=14)
         table.add_column(justify="left")
 
-        # GPU Utilization
         gpu_bar = self.make_bar(info['gpu_util'], width=40)
         table.add_row(
             "GPU Usage:",
             Text.assemble(gpu_bar, f" {info['gpu_util']:>3.0f}%")
         )
 
-        # Memory
         mem_bar = self.make_bar(info['mem_percent'], width=40)
         mem_used_gb = info['mem_used'] / 1024
         mem_total_gb = info['mem_total'] / 1024
@@ -214,24 +205,30 @@ class WindowsGPUMonitor:
             )
         )
 
-        # Temperature
-        temp_icon = "[red]HOT[/red]" if info['temp'] > 80 else "TEMP"
-        temp_color = "red" if info['temp'] > 80 else "yellow" if info['temp'] > 65 else "green"
+        temp = info.get('temp', 0)
+        temp_icon = "🔥" if temp > 80 else "🌡️"
+        temp_color = "red" if temp > 80 else "yellow" if temp > 65 else "green"
         table.add_row(
             "Temperature:",
-            Text(f"{temp_icon} {info['temp']:.0f}C", style=temp_color)
+            Text(f"{temp_icon} {temp:.0f}°C", style=temp_color)
         )
 
-        # Power
-        if info['power_limit'] > 0:
-            power_percent = (info['power'] / info['power_limit'] * 100)
+        power = info.get('power', 0)
+        power_limit = info.get('power_limit', 0)
+
+        if power_limit > 0:
+            power_percent = (power / power_limit * 100)
             power_bar = self.make_bar(power_percent, width=40)
             table.add_row(
                 "Power:",
-                Text.assemble(power_bar, f" {info['power']:.1f}/{info['power_limit']:.0f} W")
+                Text.assemble(power_bar, f" {power:.1f}/{power_limit:.0f} W")
+            )
+        elif power > 0:
+            table.add_row(
+                "Power:",
+                Text(f"⚡ {power:.1f} W", style="bright_yellow")
             )
 
-        # Clocks
         table.add_row(
             "GPU Clock:",
             Text(f"[CLOCK] {info['gpu_clock']} MHz", style="bright_blue")
@@ -241,7 +238,6 @@ class WindowsGPUMonitor:
             Text(f"[MEM] {info['mem_clock']} MHz", style="bright_blue")
         )
 
-        # Fan
         if info['fan_speed'] > 0:
             fan_color = "red" if info['fan_speed'] > 80 else "yellow" if info['fan_speed'] > 50 else "green"
             table.add_row(
@@ -249,7 +245,6 @@ class WindowsGPUMonitor:
                 Text(f"[FAN] {info['fan_speed']:.0f}%", style=fan_color)
             )
 
-        # Sparklines
         table.add_row("")
         table.add_row("GPU History:", self.make_sparkline(list(self.gpu_history[info['index']])))
         table.add_row("Mem History:", self.make_sparkline(list(self.mem_history[info['index']])))
@@ -291,7 +286,6 @@ class WindowsGPUMonitor:
     def create_system_info(self):
         """Create system info panel"""
         try:
-            # Get driver version
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'],
                 capture_output=True,
@@ -318,28 +312,23 @@ class WindowsGPUMonitor:
         """Generate the display layout"""
         layout = Layout()
 
-        # System info at top
         system_info = self.create_system_info()
 
-        # Get all GPU info
         gpus = self.get_gpu_info()
         if not gpus:
             return Panel("[red]Error reading GPU data[/red]", border_style="red")
 
         gpu_panels = [self.create_gpu_panel(gpu) for gpu in gpus]
 
-        # Get processes
         processes = self.get_processes()
         process_table = self.create_process_table(processes)
 
-        # Build layout
         layout.split_column(
             Layout(system_info, size=8),
             Layout(name="gpus"),
             Layout(process_table, size=10)
         )
 
-        # Split GPU section
         if len(gpu_panels) == 1:
             layout["gpus"].update(gpu_panels[0])
         else:
@@ -369,8 +358,15 @@ class WindowsGPUMonitor:
 
 def main():
     """Main entry point"""
-    monitor = WindowsGPUMonitor()
-    monitor.run()
+    try:
+        monitor = WindowsGPUMonitor()
+        monitor.run()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Exiting...[/yellow]")
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        console.print("\n[yellow]Press Enter to exit...[/yellow]")
+        input()
 
 
 if __name__ == "__main__":
